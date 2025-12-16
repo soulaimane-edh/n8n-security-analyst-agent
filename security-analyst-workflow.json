@@ -1,0 +1,886 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "output": "raw",
+        "filters": {},
+        "options": {}
+      },
+      "id": "81444f16-ba7d-4137-80d2-57ded0617c00",
+      "name": "On New Email",
+      "type": "n8n-nodes-base.microsoftOutlookTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1424,
+        144
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "virusTotalApiKey",
+              "value": "YOUR_VIRUSTOTAL_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "adminEmail",
+              "value": "admin@example.com",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "e285039c-6a3f-45f7-bc6d-14d40b22dd1d",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1216,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "condition-ignore-own",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "admin@example.com",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "959eaa8b-e6cb-4893-978b-a8ff7033d78f",
+      "name": "Filter Self Emails",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        -976,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract URLs and Attachments\n// Creates separate items for URL scan and File scan to allow parallel processing\n\nconst items = $input.all();\nconst outputItems = [];\n\nfor (const item of items) {\n  const emailData = item.json;\n  \n  // Extract URLs\n  const urlRegex = /(https?:\\/\\/[^\\s<>\"]+|www\\.[^\\s<>\"]+)/gi;\n  const bodyText = emailData.bodyPreview || emailData.body?.content || '';\n  const urls = bodyText.match(urlRegex) || [];\n  \n  const hasUrls = urls.length > 0;\n  const hasAttachments = emailData.hasAttachments === true;\n  \n  // 1. Prepare URL Scan Item\n  if (hasUrls) {\n    outputItems.push({\n      json: {\n        urls: urls,\n        hasUrls: true,\n        hasAttachments: false, // Forces switch to URL branch\n        originalEmail: emailData,\n        scanType: 'URL_SCAN'\n      }\n    });\n  }\n  \n  // 2. Prepare File Scan Item\n  if (hasAttachments) {\n    outputItems.push({\n      json: {\n        urls: [],\n        hasUrls: false,\n        hasAttachments: true, // Forces switch to File branch\n        originalEmail: emailData,\n        scanType: 'FILE_SCAN',\n        // Explicitly pass attachment metadata for later recovery\n        attachmentMetadata: {\n             name: \"Pending Extraction...\", \n             originalId: emailData.id\n        }\n      }\n    });\n  }\n  \n  // 3. No Content\n  if (!hasUrls && !hasAttachments) {\n    outputItems.push({\n      json: {\n        urls: [],\n        hasUrls: false,\n        hasAttachments: false,\n        originalEmail: emailData,\n        scanType: 'EMPTY'\n      }\n    });\n  }\n}\n\nreturn outputItems;"
+      },
+      "id": "34299bde-e4eb-4260-9383-8459be0a0c4a",
+      "name": "Extract URLs and Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "id-1",
+                    "leftValue": "={{ $json.hasUrls }}",
+                    "rightValue": false,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false"
+                    }
+                  },
+                  {
+                    "id": "id-2",
+                    "leftValue": "={{ $json.hasAttachments }}",
+                    "rightValue": false,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "No Content"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "id-3",
+                    "leftValue": "={{ $json.hasUrls }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "URLs Found"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "id-4",
+                    "leftValue": "={{ $json.hasAttachments }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Attachments Found"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "654584bb-7196-4728-8a13-60b0f43fb321",
+      "name": "Route by Content Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -1152,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "securityStatus",
+              "value": "CLEAN",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "reportHtml",
+              "value": "<h2 style=\"color: green;\">✅ EMAIL SÉCURISÉ</h2><p>Aucun lien ou pièce jointe détecté dans cet email.</p>",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "134133b8-952e-453b-89f5-dbcb34b0e89c",
+      "name": "No Threats Found",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -128,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process URLs for scanning\nconst inputData = $input.all();\nconst outputItems = [];\n\nfor (const item of inputData) {\n  const urls = item.json.urls || [];\n  const originalEmail = item.json.originalEmail;\n  \n  for (const url of urls) {\n    outputItems.push({\n      json: {\n        url: url,\n        originalEmailId: originalEmail.id,\n        originalEmailSubject: originalEmail.subject,\n        scanType: 'URL_SCAN' // Keep trace of type\n      }\n    });\n  }\n}\n\nreturn outputItems;"
+      },
+      "id": "a24f0b5c-2dbf-415f-a4bf-5d4bb6630c83",
+      "name": "Process URLs for Scanning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -832,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.virustotal.com/api/v3/urls",
+        "authentication": "genericCredentialType",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "={{ $('Workflow Configuration').first().json.virusTotalApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b98ff721-a131-4608-b221-dcd60b237eca",
+      "name": "Submit URL to VirusTotal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -656,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "id": "ed88e5e4-db37-451b-a027-c634a04fd521",
+      "name": "Wait for URL Analysis",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -432,
+        464
+      ],
+      "webhookId": "wait-url-webhook"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://www.virustotal.com/api/v3/analyses/' + $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "={{ $('Workflow Configuration').first().json.virusTotalApiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "798f7aeb-69f6-4963-832e-9e931b3687aa",
+      "name": "Get URL Analysis Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -224,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "messageAttachment",
+        "operation": "getAll",
+        "messageId": "={{ $json.originalEmail.id }}",
+        "options": {}
+      },
+      "id": "7f93d175-7dff-4e3f-9dbf-4a22517db686",
+      "name": "Get Attachments List",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        832
+      ],
+      "webhookId": "1018aba9-0f7d-4012-ab12-df7a358660f0",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process attachments for scanning\nconst items = $input.all();\nconst outputItems = [];\n// Retrieve original email info\nlet originalEmail = {};\ntry {\n  originalEmail = $('Extract URLs and Attachments').item.json.originalEmail;\n} catch(e) {}\n\nfor (const item of items) {\n  outputItems.push({\n    json: {\n      id: item.json.id,\n      attachmentId: item.json.id,\n      attachmentName: item.json.name,\n      attachmentSize: item.json.size,\n      attachmentContentType: item.json.contentType,\n      messageId: originalEmail.id,\n      emailFrom: originalEmail.from,\n      emailSubject: originalEmail.subject,\n      scanType: 'FILE_SCAN'\n    }\n  });\n}\n\nreturn outputItems;"
+      },
+      "id": "e8b62f7f-3405-4555-a2a5-f7cdf9a19319",
+      "name": "Process Attachments for Scanning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1088,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "messageAttachment",
+        "operation": "download",
+        "messageId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.messageId }}"
+        },
+        "attachmentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.attachmentId }}"
+        }
+      },
+      "id": "82219925-1d31-4d8c-af05-d4ea3888974a",
+      "name": "Download Attachment",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        832
+      ],
+      "webhookId": "b6bdd39b-fdfd-4ca4-9e6a-56b1d96430ab",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "type": "SHA256",
+        "binaryData": true,
+        "dataPropertyName": "fileHash"
+      },
+      "id": "c6e70837-104d-43e7-9fcc-facaef5cba30",
+      "name": "Calculate File Hash",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://www.virustotal.com/api/v3/files/' + $json.fileHash }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "={{ $('Workflow Configuration').first().json.virusTotalApiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "3ad70add-2025-4f95-903b-bd805f2c3e31",
+      "name": "Check File Hash in VirusTotal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -560,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "4aa5bdd3-c378-4319-92fa-cec9a508c68a",
+      "name": "Restore Binary Context",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -592,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.virustotal.com/api/v3/files",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "={{ $('Workflow Configuration').first().json.virusTotalApiKey }}"
+            },
+            {}
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "44ee77de-98ba-4580-840e-5ef92795a6eb",
+      "name": "Upload File to VirusTotal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -400,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "id": "cef6de87-a62d-4353-b834-934787823a3f",
+      "name": "Wait for File Analysis",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        768
+      ],
+      "webhookId": "wait-file-webhook"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://www.virustotal.com/api/v3/analyses/' + $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "={{ $('Workflow Configuration').first().json.virusTotalApiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "375f3de2-eae8-4415-9e52-266fe761415b",
+      "name": "Get File Analysis Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -80,
+        928
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b56c9468-b27c-40ff-bca7-c7a552f44df8",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        32,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AGGREGATE FINAL RESULTS\n// 1. Group everything into one array\n// 2. Recover Filenames from original Attachment list\n\nconst allItems = $input.all();\nconst outputData = {\n  allScanResults: [],\n  originalEmail: null,\n  fileMetadata: []\n};\n\n// Get Attachment Info Source (to recover names)\nlet attachmentInfo = [];\ntry {\n  attachmentInfo = $('Process Attachments for Scanning').all();\n} catch(e) {}\n\n// Get Original Email\ntry {\n  const extractNode = $('Extract URLs and Attachments').all();\n  if (extractNode.length > 0) {\n     outputData.originalEmail = extractNode[0].json.originalEmail;\n  }\n} catch(e) {}\n\nfor (const item of allItems) {\n   const json = item.json;\n   outputData.allScanResults.push(json);\n   \n   // IF THIS IS A FILE RESULT (Check attributes or logic)\n   // Logic: If it has 'meta' or 'data.type==file' or simply comes from the File branch\n   // We try to match it. \n   // Since VirusTotal results are generic, we will map them sequentially or by hash if available.\n   \n   // Simple Recovery: If we have an attachmentInfo item available, use it.\n   if (json.data && (json.data.type === 'file' || json.data.type === 'analysis')) {\n       // Try to find matching info. \n       // In a simple loop, the order is usually preserved or we take the first available.\n       if (attachmentInfo.length > 0) {\n           const info = attachmentInfo.shift(); // Take first and remove\n           outputData.fileMetadata.push({\n               filename: info.json.attachmentName,\n               size: info.json.attachmentSize,\n               type: info.json.attachmentContentType,\n               vt_id: json.data.id\n           });\n       }\n   }\n}\n\nreturn [{ json: outputData }];"
+      },
+      "id": "93da535a-c946-40bc-9c05-b9cd9f7973fa",
+      "name": "Aggregate Scan Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze these VirusTotal scan results: {{ JSON.stringify($json.allScanResults) }}\n\nIMPORTANT: Here is the File Metadata (Real filenames): {{ JSON.stringify($json.fileMetadata) }}\n\nUse the 'fileMetadata' to display the correct Filename instead of 'N/A'. Map them by order or context.",
+        "options": {
+          "systemMessage": "You are a cybersecurity analyst specialized in threat assessment.\n\nYour task is to:\n1. Analyze VirusTotal scan results for URLs and files.\n2. Extract malicious scores.\n3. For file attachments, YOU MUST USE THE 'fileMetadata' JSON provided to get the real Filename. Do not output 'N/A' for filename if metadata is available.\n4. Classify each item as CLEAN (score = 0) or DANGEROUS (score > 0)\n5. Generate an HTML report with:\n   - A summary table with columns: Type | Name/URL | Status | Malicious Score | Metadata (for files)\n   - For files, display: **Filename** (from metadata), size, and hash.\n   - Use green color for CLEAN items, red for DANGEROUS\n   - A final conclusion: \"✅ MAIL SÉCURISÉ\" (all clean) or \"⚠️ ATTENTION DÉTECTÉE\" (threats found)\n6. Return ONLY the HTML content, no additional text\n"
+        }
+      },
+      "id": "636a6249-d2eb-4e5d-9173-4d4f10644d63",
+      "name": "Security Analyst Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        336,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "toRecipients": "={{ $('Workflow Configuration').first().json.adminEmail }}",
+        "subject": "={{ 'Rapport de Sécurité - Email de ' + $('Extract URLs and Attachments').first().json.originalEmail.from.emailAddress.name }}",
+        "bodyContent": "={{ $('Security Analyst Agent').isExecuted ? $('Security Analyst Agent').first().json.output : $('No Threats Found').first().json.reportHtml }}",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "id": "b7f6c747-c756-4a86-9adb-f65523e76883",
+      "name": "Send Security Report Email",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        592,
+        272
+      ],
+      "webhookId": "ef167096-194e-4d98-b578-b3c964dc54ac",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {
+          "temperature": 0.1,
+          "topP": 0.8
+        }
+      },
+      "id": "e3aec073-e135-48d1-921a-459247602233",
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        384,
+        832
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Gemini Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On New Email": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Filter Self Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Self Emails": {
+      "main": [
+        [
+          {
+            "node": "Extract URLs and Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract URLs and Attachments": {
+      "main": [
+        [
+          {
+            "node": "Route by Content Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Content Type": {
+      "main": [
+        [
+          {
+            "node": "No Threats Found",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process URLs for Scanning",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Attachments List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Threats Found": {
+      "main": [
+        [
+          {
+            "node": "Send Security Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process URLs for Scanning": {
+      "main": [
+        [
+          {
+            "node": "Submit URL to VirusTotal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit URL to VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "Wait for URL Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for URL Analysis": {
+      "main": [
+        [
+          {
+            "node": "Get URL Analysis Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get URL Analysis Results": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Attachments List": {
+      "main": [
+        [
+          {
+            "node": "Process Attachments for Scanning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Attachments for Scanning": {
+      "main": [
+        [
+          {
+            "node": "Download Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Attachment": {
+      "main": [
+        [
+          {
+            "node": "Calculate File Hash",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Restore Binary Context",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Calculate File Hash": {
+      "main": [
+        [
+          {
+            "node": "Check File Hash in VirusTotal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check File Hash in VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "Restore Binary Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Binary Context": {
+      "main": [
+        [
+          {
+            "node": "Upload File to VirusTotal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload File to VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "Wait for File Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for File Analysis": {
+      "main": [
+        [
+          {
+            "node": "Get File Analysis Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get File Analysis Results": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Scan Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Scan Results": {
+      "main": [
+        [
+          {
+            "node": "Security Analyst Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Analyst Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Security Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Security Analyst Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
