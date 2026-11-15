@@ -1,0 +1,26 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+
+# Test artifacts and Python cache
+__pycache__/
+.pytest_cache/
+*.pyc
+.coverage
+htmlcov/
+
+# Builds and exports
+dist/
+build/
+*.log
+.n8n/
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
